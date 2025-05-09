@@ -14,24 +14,25 @@ TRADING_DAYS_PER_YEAR = 365 # Crypto trades 24/7
 def get_btc_data(years=5):
     """
     Fetches historical BTC-USD data for the last 'years' years.
-    Tries 'Adj Close' first, then 'Close'.
+    Tries 'Adj Close' first, then 'Close'. Ensures a 1D Series is returned for prices.
     """
     _end_date = datetime.now()
     _start_date = _end_date - timedelta(days=years * 365 + (years // 4)) # Account for leap years approx.
     
     st.info(f"Fetching BTC-USD data from {_start_date.strftime('%Y-%m-%d')} to {_end_date.strftime('%Y-%m-%d')}...")
     try:
-        # Fetch the full DataFrame from yfinance
         btc_data_full = yf.download('BTC-USD', start=_start_date.strftime('%Y-%m-%d'), end=_end_date.strftime('%Y-%m-%d'))
         
         if btc_data_full.empty:
             st.error("No data fetched from yfinance. The DataFrame is empty.")
             return None, None, None
         
-        # For debugging, you can uncomment this to see what columns are actually returned:
-        # st.write("Available columns in fetched data:", btc_data_full.columns.tolist())
+        # For debugging, you can uncomment this to see the structure of the fetched columns:
+        # st.write("Available columns in fetched data:", btc_data_full.columns)
+        # if isinstance(btc_data_full.columns, pd.MultiIndex):
+        #     st.write("Columns are MultiIndex.")
 
-        # Determine which price column to use
+        price_column_to_use = None
         if 'Adj Close' in btc_data_full.columns:
             price_column_to_use = 'Adj Close'
         elif 'Close' in btc_data_full.columns:
@@ -41,18 +42,40 @@ def get_btc_data(years=5):
             st.error(f"Neither 'Adj Close' nor 'Close' columns were found in the fetched data. Available columns: {btc_data_full.columns.tolist()}")
             return None, None, None
             
-        st.success(f"Data fetched successfully. Using '{price_column_to_use}' prices.")
+        # Extract the potential price data
+        price_data = btc_data_full[price_column_to_use]
         
-        # Return the selected price series, min date, and max date from the index
-        return btc_data_full[price_column_to_use], btc_data_full.index.min(), btc_data_full.index.max()
+        # Ensure price_data is a 1D Series
+        if isinstance(price_data, pd.DataFrame):
+            # If yfinance returned a DataFrame (e.g., due to MultiIndex columns where 'price_column_to_use' was a top level)
+            if price_data.shape[1] == 1:
+                # If it's a DataFrame with exactly one column, squeeze it into a Series
+                price_data = price_data.iloc[:, 0]
+                # st.info(f"Price data for '{price_column_to_use}' was a DataFrame; converted to Series.")
+            else:
+                # This would be unusual for a single price type of a single ticker
+                st.error(f"Extracted price data for '{price_column_to_use}' is a DataFrame with multiple columns: {price_data.columns.tolist()}. Cannot proceed.")
+                return None, None, None
+        
+        # Final check if it's a Series
+        if not isinstance(price_data, pd.Series):
+            st.error(f"Extracted price data for '{price_column_to_use}' is not a Pandas Series after processing. Type: {type(price_data)}")
+            return None, None, None
+
+        # Ensure the Series has a name, useful for plotting or other operations
+        if price_data.name is None and price_column_to_use is not None:
+             price_data.name = price_column_to_use
+            
+        st.success(f"Data fetched successfully. Using '{price_column_to_use}' prices.")
+        return price_data, btc_data_full.index.min(), btc_data_full.index.max()
         
     except Exception as e:
-        # Catch any other exceptions during the download or processing
         st.error(f"An error occurred during data fetching or processing: {e}")
-        # For more detailed debugging in your local environment, you might want to print the full traceback
+        # For more detailed debugging in your local environment or Streamlit Cloud logs:
         # import traceback
         # st.error(traceback.format_exc())
         return None, None, None
+
 
 # --- Metric Calculation Functions (same as before) ---
 def calculate_daily_returns(series):
