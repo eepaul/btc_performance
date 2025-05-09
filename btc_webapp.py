@@ -14,21 +14,44 @@ TRADING_DAYS_PER_YEAR = 365 # Crypto trades 24/7
 def get_btc_data(years=5):
     """
     Fetches historical BTC-USD data for the last 'years' years.
+    Tries 'Adj Close' first, then 'Close'.
     """
     _end_date = datetime.now()
     _start_date = _end_date - timedelta(days=years * 365 + (years // 4)) # Account for leap years approx.
     
     st.info(f"Fetching BTC-USD data from {_start_date.strftime('%Y-%m-%d')} to {_end_date.strftime('%Y-%m-%d')}...")
     try:
-        btc_data = yf.download('BTC-USD', start=_start_date.strftime('%Y-%m-%d'), end=_end_date.strftime('%Y-%m-%d'))
-        if btc_data.empty:
-            st.error("No data fetched. Please check the ticker or date range if manually specified.")
+        # Fetch the full DataFrame from yfinance
+        btc_data_full = yf.download('BTC-USD', start=_start_date.strftime('%Y-%m-%d'), end=_end_date.strftime('%Y-%m-%d'))
+        
+        if btc_data_full.empty:
+            st.error("No data fetched from yfinance. The DataFrame is empty.")
             return None, None, None
-        st.success("Data fetched successfully.")
-        # Return the full dataframe, min and max dates
-        return btc_data['Adj Close'], btc_data.index.min(), btc_data.index.max()
+        
+        # For debugging, you can uncomment this to see what columns are actually returned:
+        # st.write("Available columns in fetched data:", btc_data_full.columns.tolist())
+
+        # Determine which price column to use
+        if 'Adj Close' in btc_data_full.columns:
+            price_column_to_use = 'Adj Close'
+        elif 'Close' in btc_data_full.columns:
+            price_column_to_use = 'Close'
+            st.info("Using 'Close' price column as 'Adj Close' was not found (this is common for crypto).")
+        else:
+            st.error(f"Neither 'Adj Close' nor 'Close' columns were found in the fetched data. Available columns: {btc_data_full.columns.tolist()}")
+            return None, None, None
+            
+        st.success(f"Data fetched successfully. Using '{price_column_to_use}' prices.")
+        
+        # Return the selected price series, min date, and max date from the index
+        return btc_data_full[price_column_to_use], btc_data_full.index.min(), btc_data_full.index.max()
+        
     except Exception as e:
-        st.error(f"Error fetching data: {e}")
+        # Catch any other exceptions during the download or processing
+        st.error(f"An error occurred during data fetching or processing: {e}")
+        # For more detailed debugging in your local environment, you might want to print the full traceback
+        # import traceback
+        # st.error(traceback.format_exc())
         return None, None, None
 
 # --- Metric Calculation Functions (same as before) ---
